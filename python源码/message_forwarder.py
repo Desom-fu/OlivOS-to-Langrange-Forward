@@ -1,6 +1,5 @@
 import sys
 import json
-import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 from urllib.parse import urlencode
