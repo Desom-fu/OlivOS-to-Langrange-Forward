@@ -124,25 +124,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "data": response.json()
             })
             
-            # 构造回调路径
-            callback_path = clean_path + "?" + urlencode({
-                "access_token": config['AccessToken']
-            })
-            
-            # 发送回调请求
-            callback_response = requests.post(
-                url=f"http://{config['Host']}:{config['Port']}{callback_path}",
-                json=modified_data,
-                headers={'Content-Type': 'application/json'},
-                timeout=5
-            )
-            
-            # 记录回调响应
-            print_log("回调响应", {
-                "status": callback_response.status_code,
-                "data": callback_response.json()
-            })
-            
             self._send_response(200, {"status": "success"})
         except Exception as e:
             print_log("转发异常", {

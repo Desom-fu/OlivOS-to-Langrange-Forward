@@ -37,7 +37,7 @@ defaults = {
 class GUIApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("OlivOS to Lagrange HTTP 转发服务配置")
+        self.root.title("OlivOS to Langrange HTTP 转发服务配置")
         
         # 转发服务状态
         self.server_running = False
@@ -304,34 +304,28 @@ class GUIApp:
 
                 # 从self.path中移除token部分
                 clean_path = self.path.split('?')[0]
-
+                
                 # 构造转发路径
                 forward_path = clean_path + "?" + urlencode({
                     "access_token": target_config['AccessToken']
                 })
-
-                # 构建符合OneBot v11规范的转发数据
+                
+                # 构建转发数据
                 modified_data = {
-                    "action": body.get("action"),
-                    "params": {}
+                    "message_type": body.get("message_type"),
+                    "message": body.get("message"),
+                    "auto_escape": body.get("auto_escape", False)
                 }
 
-                # 根据不同的action类型处理参数
-                if body.get("action") == "send_private_msg":
-                    modified_data["params"] = {
-                        "user_id": body.get("params", {}).get("user_id"),
-                        "message": body.get("params", {}).get("message"),
-                        "auto_escape": body.get("params", {}).get("auto_escape", False)
-                    }
-                elif body.get("action") == "send_group_msg":
-                    modified_data["params"] = {
-                        "group_id": body.get("params", {}).get("group_id"),
-                        "message": body.get("params", {}).get("message"),
-                        "auto_escape": body.get("params", {}).get("auto_escape", False)
-                    }
-                else:
-                    # 其他action类型直接转发所有params
-                    modified_data["params"] = body.get("params", {})
+                if "user_id" in body:
+                    modified_data["user_id"] = body["user_id"]
+                    
+                if "group_id" in body:
+                    modified_data["group_id"] = body["group_id"]
+                
+                if modified_data["message_type"] == "group":
+                    modified_data["group_id"] = body.get("group_id")
+                    modified_data.pop("user_id", None)
 
                 # 记录转发信息
                 print_log("转发构造数据", {
@@ -347,60 +341,19 @@ class GUIApp:
                         headers={'Content-Type': 'application/json'},
                         timeout=5
                     )
-
-                    response_data = response.json()
+                    
                     print_log("转发响应", {
                         "status": response.status_code,
-                        "data": response_data
+                        "data": response.json()
                     })
-
-                    # 检查是否有返回消息需要回调
-                    if response_data.get("status") == "ok" and response_data.get("data"):
-                        # 构造回调数据
-                        callback_data = {
-                            "status": "ok",
-                            "retcode": 0,
-                            "data": response_data["data"],
-                            "echo": body.get("echo")  # 保持原始echo值
-                        }
-
-                        # 构造回调路径 (假设回调路径为 /callback)
-                        callback_path = clean_path + "?" + urlencode({
-                            "access_token": config['AccessToken']
-                        })
-
-                        # 发送回调
-                        try:
-                            requests.post(
-                                url=f"http://{config['Host']}:{config['Port']}{callback_path}",
-                                json=callback_data,
-                                headers={'Content-Type': 'application/json'},
-                                timeout=5
-                            )
-                            print_log("回调发送", {
-                                "path": callback_path,
-                                "data": callback_data
-                            })
-                        except Exception as e:
-                            print_log("回调发送失败", {
-                                "error": str(e)
-                            })
-
-                    # 返回原始响应
-                    self._send_response(200, response_data)
-
+                    
+                    self._send_response(200, {"status": "success"})
                 except Exception as e:
-                    error_response = {
-                        "status": "failed",
-                        "retcode": 1000,
-                        "data": None,
-                        "message": str(e)
-                    }
                     print_log("转发异常", {
                         "error": str(e),
                         "target": f"{target_config['Host']}:{target_config['Port']}{forward_path}"
                     })
-                    self._send_response(502, error_response)
+                    self._send_response(502, {"status": "forward failed"})
         
         def print_log(title, data):
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
