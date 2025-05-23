@@ -69,38 +69,40 @@ class RequestHandler(BaseHTTPRequestHandler):
         if self.headers.get('Authorization') != f"Bearer {config['AccessToken']}":
             self._send_response(401, {"status": "unauthorized"})
             return
-
+        
         # 处理数据
         if not isinstance(body, dict):
             self._send_response(400, {"status": "invalid JSON"})
             return
+        
+        # 保存原始路径和参数
+        original_path = self.path
+        clean_path = original_path.split('?')[0]
 
-        # 从self.path中移除token部分
-        clean_path = self.path.split('?')[0]
-        
         # 构造转发路径
-        forward_path = clean_path + "?" + urlencode({
-            "access_token": target_config['AccessToken']  # 携带访问令牌
-        })
-        
-        # 构建转发数据
+        forward_path = original_path.replace(
+            f"access_token={config['AccessToken']}",
+            f"access_token={target_config['AccessToken']}",
+            1
+        ) if f"access_token={config['AccessToken']}" in original_path else (
+            clean_path + "?" + urlencode({"access_token": target_config['AccessToken']})
+        )
+
+        # 构建转发数据（保持原有逻辑不变）
         modified_data = {
             "message_type": body.get("message_type"),
             "message": body.get("message"),
             "auto_escape": body.get("auto_escape", False)
         }
 
-        # 仅当存在user_id时才添加
         if "user_id" in body:
             modified_data["user_id"] = body["user_id"]
             
-        # 仅当存在group_id时才添加
         if "group_id" in body:
             modified_data["group_id"] = body["group_id"]
         
         if modified_data["message_type"] == "group":
             modified_data["group_id"] = body.get("group_id")
-            # 对青果骰系的特殊处理，因为正常来说不需要user_id，但是青果却设置了-1
             modified_data.pop("user_id", None)
 
         # 记录转发信息
@@ -108,8 +110,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             "path": forward_path,
             "data": modified_data
         })
-
         # 发送转发请求
+
         try:
             response = requests.post(
                 url=f"http://{target_config['Host']}:{target_config['Port']}{forward_path}",
@@ -117,20 +119,56 @@ class RequestHandler(BaseHTTPRequestHandler):
                 headers={'Content-Type': 'application/json'},
                 timeout=5
             )
-            
-            # 记录目标服务器响应
+            response_data = response.json()
             print_log("转发响应", {
                 "status": response.status_code,
-                "data": response.json()
+                "data": response_data
             })
-            
-            self._send_response(200, {"status": "success"})
+            # 检查是否有返回数据需要回调
+            if response_data.get("status") == "ok" and response_data.get("data"):
+                # 构造回调路径（保持原路径结构，使用原始token）
+                callback_path = original_path if f"access_token={config['AccessToken']}" in original_path else (
+                    clean_path + "?" + urlencode({"access_token": config['AccessToken']})
+                )
+                # 构造回调数据
+                callback_data = {
+                    "status": "ok",
+                    "retcode": 0,
+                    "data": response_data["data"],
+                    "echo": body.get("echo")
+                }
+                # 发送回调（使用原始接收配置）
+                try:
+                    requests.post(
+                        url=f"http://{config['Host']}:{config['Port']}{callback_path}",
+                        json=callback_data,
+                        headers={'Content-Type': 'application/json'},
+                        timeout=15
+                    )
+                    print_log("回调发送", {
+                        "path": callback_path,
+                        "data": callback_data
+                    })
+                except Exception as e:
+                    print_log("回调发送失败", {
+                        "error": str(e),
+                        "path": callback_path
+                    })
+            # 返回原始响应
+            self._send_response(200, response_data)
         except Exception as e:
+            error_response = {
+                "status": "failed",
+                "retcode": 1000,
+                "data": None,
+                "message": str(e),
+                "echo": body.get("echo")
+            }
             print_log("转发异常", {
                 "error": str(e),
                 "target": f"{target_config['Host']}:{target_config['Port']}{forward_path}"
             })
-            self._send_response(502, {"status": "forward failed"})
+            self._send_response(502, error_response)
 
 def run_server():
     server = HTTPServer((config['Host'], config['Port']), RequestHandler)
