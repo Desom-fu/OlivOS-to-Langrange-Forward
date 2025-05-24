@@ -374,8 +374,9 @@ class GUIApp:
                                 url=f"http://{config['Host']}:{config['Port']}{callback_path}",
                                 json=callback_data,
                                 headers={'Content-Type': 'application/json'},
-                                timeout=15
+                                timeout=5
                             )
+                            
                             print_log("回调发送", {
                                 "path": callback_path,
                                 "data": callback_data
